@@ -62,6 +62,9 @@ class XarmEnv(gym.Env):
         # Open gripper
         self.arm.set_gripper_position(GRIPPER_OPEN, wait=True)
 
+        # collision sens
+        self.arm.set_collision_sensitivity(2, wait=True)
+
         
     def _disconnect(self):
         try:
@@ -115,14 +118,14 @@ class XarmEnv(gym.Env):
         # first move arm
         # need to scale action
         ee_actions[0:3] *= 1000
-        self.arm.set_position_aa(ee_actions, is_radian=True)
+        self.arm.set_position_aa(ee_actions, is_radian=True, wait=False)
         # self.arm.set_servo_cartesian_aa(ee_actions, is_radian=True)
 
         # now gripper
         if gripper_action > 0.5:
-            self.arm.set_gripper_position(GRIPPER_CLOSED)
+            self.arm.set_gripper_position(GRIPPER_CLOSED, wait=False)
         else:
-            self.arm.set_gripper_position(GRIPPER_OPEN)
+            self.arm.set_gripper_position(GRIPPER_OPEN, wait=False)
 
         terminated = False
         reward = 0
