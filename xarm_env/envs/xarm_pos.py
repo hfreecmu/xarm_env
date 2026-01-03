@@ -6,11 +6,22 @@ from gymnasium import spaces
 
 from xarm.wrapper import XArmAPI
 
-GRIPPER_OPEN = 850
+GRIPPER_OPEN = 800
 GRIPPER_CLOSED = 0
-GRIPPER_THRESH = 800
+# GRIPPER_THRESH = 800
 
-class XarmEnv(gym.Env):
+def pulse_to_g(pulse):
+    g = float((pulse - GRIPPER_OPEN) / (GRIPPER_CLOSED - GRIPPER_OPEN))
+
+    g_clamped = min(max(g, 0.0), 1.0)
+    return g_clamped
+
+def g_to_pulse(g):
+    g_clamped = min(max(g, 0.0), 1.0)
+    pulse = GRIPPER_OPEN + g_clamped * (GRIPPER_CLOSED - GRIPPER_OPEN)
+    return pulse
+
+class XarmPosEnv(gym.Env):
     def __init__(self, env_data, render_mode=None):
         api = env_data["api"]
 
@@ -24,12 +35,14 @@ class XarmEnv(gym.Env):
                                       high=np.inf,
                                       shape=(6,),
                                       dtype=float),
-            "ee_gripper": spaces.Discrete(2),
+            # "ee_gripper": spaces.Discrete(2),
+            "ee_gripper": spaces.Box(low=-np.inf, high=np.inf, dtype=float),
         })
         
         self.action_space = spaces.Dict({
             "ee_pose": spaces.Box(low=-np.inf, high=np.inf, shape=(6,), dtype=float),
-            "gripper": spaces.Discrete(2),
+            # "gripper": spaces.Discrete(2),
+            "ee_gripper": spaces.Box(low=-np.inf, high=np.inf, dtype=float)
         })
 
         assert render_mode is None
@@ -44,27 +57,26 @@ class XarmEnv(gym.Env):
 
         self._is_connected = True
 
-        # Clean error and warn
-        if self.arm.warn_code != 0:
-            self.arm.clean_warn()
-        if self.arm.error_code != 0:
-            self.arm.clean_error()
-
-        # Enable the robot and the gripper
-        self.arm.motion_enable()
-        self.arm.set_gripper_enable(True)
+        self.arm.clean_error()
+        self.arm.clean_warn()
+        self.arm.motion_enable(True)
+        time.sleep(1)
 
         # Set mode and state
         self.arm.set_mode(0)
-        # self.arm.set_mode(1)
-        self.arm.set_state(0)
-
-        # Open gripper
-        self.arm.set_gripper_position(GRIPPER_OPEN, wait=True)
-
-        # collision sens
+        time.sleep(1)
         self.arm.set_collision_sensitivity(2, wait=True)
+        time.sleep(1)
+        self.arm.set_state(0)
+        time.sleep(1)
 
+        # Gripper
+        self.arm.set_gripper_mode(0)
+        self.arm.set_gripper_enable(True)
+        self.arm.set_gripper_speed(5000)
+        time.sleep(1)
+        self.arm.set_gripper_position(GRIPPER_OPEN, wait=True)
+        time.sleep(1)
         
     def _disconnect(self):
         try:
@@ -76,24 +88,25 @@ class XarmEnv(gym.Env):
 
         self._is_connected = False
 
-
+    # TODO handle failed gets
     def _get_obs(self):
         _, pose = self.arm.get_position_aa(is_radian=True)
+
         _, gripper_pos = self.arm.get_gripper_position()
+        is_closed = pulse_to_g(gripper_pos)
 
         pose = np.array(pose)
-        gripper_pos = np.array(gripper_pos)
 
         pose[0:3] /= 1000.0
 
-        if gripper_pos < GRIPPER_THRESH:
-            ee_gripper = 1.0
-        else:
-            ee_gripper = 0.0
+        # if gripper_pos < GRIPPER_THRESH:
+        #     ee_gripper = 1.0
+        # else:
+        #     ee_gripper = 0.0
 
         self._latest_obs = {
             'ee_pose': pose,
-            'ee_gripper': ee_gripper,
+            'ee_gripper': is_closed,
         }
 
         return self._latest_obs
@@ -122,10 +135,14 @@ class XarmEnv(gym.Env):
         # self.arm.set_servo_cartesian_aa(ee_actions, is_radian=True)
 
         # now gripper
-        if gripper_action > 0.5:
-            self.arm.set_gripper_position(GRIPPER_CLOSED, wait=False)
-        else:
-            self.arm.set_gripper_position(GRIPPER_OPEN, wait=False)
+        pulse = g_to_pulse(gripper_action)
+        self.arm.set_gripper_position(pulse, wait=False)
+
+        # if gripper_action > 0.5:
+        # if gripper_action > 0.5:
+        #     self.arm.set_gripper_position(GRIPPER_CLOSED, wait=False)
+        # else:
+        #     self.arm.set_gripper_position(GRIPPER_OPEN, wait=False)
 
         terminated = False
         reward = 0
