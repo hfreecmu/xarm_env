@@ -6,9 +6,9 @@ from gymnasium import spaces
 
 from xarm.wrapper import XArmAPI
 
-GRIPPER_OPEN = 800
+GRIPPER_OPEN = 850
 GRIPPER_CLOSED = 0
-# GRIPPER_THRESH = 800
+GRIPPER_THRESH = 800
 
 def pulse_to_g(pulse):
     g = float((pulse - GRIPPER_OPEN) / (GRIPPER_CLOSED - GRIPPER_OPEN))
@@ -24,10 +24,13 @@ def g_to_pulse(g):
 class XarmPosEnv(gym.Env):
     def __init__(self, env_data, render_mode=None):
         api = env_data["api"]
+        thresh_closed = env_data.get('thresh_closed', False)
 
         # Setup arm
         self._is_connected = False
         self._setup_arm(api)
+
+        self.thresh_closed = thresh_closed
 
         # Setup gym
         self.observation_space = spaces.Dict({
@@ -93,11 +96,16 @@ class XarmPosEnv(gym.Env):
         _, pose = self.arm.get_position_aa(is_radian=True)
 
         _, gripper_pos = self.arm.get_gripper_position()
+
+        if self.thresh_closed:
+            gripper_pos = GRIPPER_OPEN if gripper_pos > GRIPPER_THRESH else GRIPPER_CLOSED
+
         is_closed = pulse_to_g(gripper_pos)
 
         pose = np.array(pose)
 
         pose[0:3] /= 1000.0
+
 
         # if gripper_pos < GRIPPER_THRESH:
         #     ee_gripper = 1.0
@@ -136,6 +144,10 @@ class XarmPosEnv(gym.Env):
 
         # now gripper
         pulse = g_to_pulse(gripper_action)
+
+        if self.thresh_closed:
+            pulse = GRIPPER_CLOSED if pulse < GRIPPER_THRESH else GRIPPER_OPEN
+
         self.arm.set_gripper_position(pulse, wait=False)
 
         # if gripper_action > 0.5:

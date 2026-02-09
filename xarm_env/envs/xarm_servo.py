@@ -26,26 +26,44 @@ class XarmServoEnv(gym.Env):
         ee_log_freq = env_data.get("ee_log_freq", None)
         ee_max_pos_speed = env_data.get("ee_max_pos_speed", 0.25)
         ee_max_rot_speed = env_data.get("ee_max_rot_speed", 0.6)
-        ee_history_len = env_data.get("ee_history_len", 240)
-        ee_queue_len = env_data.get("ee_queue_len", 2000)
+        # CHANGED
+        # ee_history_len = env_data.get("ee_history_len", 240)
+        # ee_queue_len = env_data.get("ee_queue_len", 2000)
+        ee_history_len = env_data.get("ee_history_len", 1000)
+        ee_queue_len = env_data.get("ee_queue_len", 4000)
 
         gripper_controller_frequency = env_data.get("gripper_controller_frequency", 30)
         gripper_log_freq = env_data.get("gripper_log_freq", None)
-        gripper_history_len = env_data.get("gripper_history_len", 60)
-        gripper_queue_len = env_data.get("gripper_queue_len", 2000)
+        # CHANGED
+        # gripper_history_len = env_data.get("gripper_history_len", 60)
+        # gripper_queue_len = env_data.get("gripper_queue_len", 2000)
+        gripper_history_len = env_data.get("gripper_history_len", 200)
+        gripper_queue_len = env_data.get("gripper_queue_len", 4000)
 
-        self.receive_robot_latency = env_data.get("receive_robot_latency", 0.0001)
-        self.receive_gripper_latency = env_data.get("receive_gripper_latency", 0.01)
+        # CHANGED
+        # cause I can do this post processing
+        # self.receive_robot_latency = env_data.get("receive_robot_latency", 0.0001)
+        # self.receive_gripper_latency = env_data.get("receive_gripper_latency", 0.01)
+        self.receive_robot_latency = env_data.get("receive_robot_latency", 0.0)
+        self.receive_gripper_latency = env_data.get("receive_gripper_latency", 0.0)
 
+        # CHANGED
+        # should be set
         self.compensate_latency = env_data.get("compensate_latency", False)
-        self.robot_action_latency = env_data.get("robot_action_latency", 0.1)
-        self.gripper_action_latency = env_data.get("gripper_action_latency", 0.1)
+        # self.robot_action_latency = env_data.get("robot_action_latency", 0.1)
+        # self.gripper_action_latency = env_data.get("gripper_action_latency", 0.1)
+        self.robot_action_latency = env_data.get("robot_action_latency", 0.0)
+        self.gripper_action_latency = env_data.get("gripper_action_latency", 0.0)
 
         # self.is_single = env_data.get("is_single", False)
 
         # self.receive_robot_latency = env_data.get("receive_robot_latency", 0.0001)
         # self.receive_gripper_latency = env_data.get("receive_gripper_latency", 0.01)
         # self.robot_action_latency = env_data.get("robot_action_latency", 0.1)
+
+        #self.terminate_open = env_data.get("terminate_open", False)
+
+        self.thresh_closed = env_data.get('thresh_closed', False)
 
         # Setup EE Controller
         self.ee_controller = XArmServoProcessController(
@@ -65,6 +83,7 @@ class XarmServoEnv(gym.Env):
             log_freq=gripper_log_freq,
             history_len=gripper_history_len,
             queue_len=gripper_queue_len,
+            thresh_closed=self.thresh_closed,
         )
 
         ee_start_succ = self.ee_controller.start()
@@ -110,7 +129,7 @@ class XarmServoEnv(gym.Env):
 
     def _get_obs(self):
         _, ee_history = self.ee_controller.get_ee_state()
-        _, gripper_history = self.gripper_controller.get_gripper_state()
+        _, gripper_history = self.gripper_controller.get_gripper_state()            
 
         ee_poses = ee_history[:, 0:6]
         robot_timestamps = ee_history[:, 6]
@@ -233,10 +252,12 @@ class XarmServoEnv(gym.Env):
         # else:
         #     self.controller.set_ee_target(ee_actions, gripper_actions)
 
-        terminated = False
         reward = 0
         observation = self._get_obs()
         info = self._get_info()
+
+        #if not self.terminate_open:
+        terminated = False
 
         return observation, reward, terminated, False, info
 

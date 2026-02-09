@@ -6,8 +6,10 @@ from typing import Optional, Tuple
 
 GRIPPER_STATE_SIZE = 2
 
-GRIPPER_OPEN = 800
+GRIPPER_OPEN = 850
 GRIPPER_CLOSED = 0
+GRIPPER_THRESH = 700
+# GRIPPER_THRESH = 400 #CHANGED
 
 from xarm_env.pose_trajectory_interpolator import PoseTrajectoryInterpolator
 
@@ -49,25 +51,32 @@ def _configure_gripper(arm) -> None:
     arm.set_gripper_position(GRIPPER_OPEN, wait=True)
     time.sleep(1)
 
-def pulse_to_g(pulse):
+def pulse_to_g(pulse, thresh_closed):
+    if thresh_closed:
+        pulse = GRIPPER_CLOSED if pulse < GRIPPER_THRESH else GRIPPER_OPEN
+
     g = float((pulse - GRIPPER_OPEN) / (GRIPPER_CLOSED - GRIPPER_OPEN))
 
     g_clamped = min(max(g, 0.0), 1.0)
     return g_clamped
 
-def g_to_pulse(g):
+def g_to_pulse(g, thresh_closed):
     g_clamped = min(max(g, 0.0), 1.0)
     pulse = GRIPPER_OPEN + g_clamped * (GRIPPER_CLOSED - GRIPPER_OPEN)
+
+    if thresh_closed:
+        pulse = GRIPPER_CLOSED if pulse < GRIPPER_THRESH else GRIPPER_OPEN
+
     return pulse
 
-def _read_gripper_state(arm: XArmAPI) -> GripperState:
+def _read_gripper_state(arm: XArmAPI, thresh_closed: bool) -> GripperState:
     code, gripper_pulse = arm.get_gripper_position()
     gripper_time = time.time()
 
     if code != 0:
         raise RuntimeError('invalid gripper code received read gripper state')
     
-    is_closed = pulse_to_g(gripper_pulse)
+    is_closed = pulse_to_g(gripper_pulse, thresh_closed)
 
     return GripperState(is_closed, gripper_time)
 
@@ -93,6 +102,8 @@ def _xarm_gripper_worker(
     # max_move_speed: float,
 
     log_freq: int,
+
+    thresh_closed: bool,
 ):
     
     arm = None
@@ -118,7 +129,7 @@ def _xarm_gripper_worker(
         arm = XArmAPI(ip, is_radian=True)
         _configure_gripper(arm)
 
-        gripper_state = _read_gripper_state(arm)
+        gripper_state = _read_gripper_state(arm, thresh_closed)
         initial = gripper_state.as_array()
 
         with gripper_state_array.get_lock():
@@ -157,7 +168,7 @@ def _xarm_gripper_worker(
                 # print(f'Gripper command (pos) is: {pos_command}')
 
             # set the command
-            gripper_pulse = g_to_pulse(pos_command)
+            gripper_pulse = g_to_pulse(pos_command, thresh_closed)
             code = arm.set_gripper_position(gripper_pulse,
                                             #speed=target_vel, need to convert units
                                             )
@@ -167,7 +178,7 @@ def _xarm_gripper_worker(
             
             # update current state
             # TODO this reading of state can be put in another process
-            gripper_state = _read_gripper_state(arm)
+            gripper_state = _read_gripper_state(arm, thresh_closed)
             current = gripper_state.as_array()
             with gripper_state_array.get_lock():
                 gripper_state_array[:] = current[:]
@@ -223,12 +234,14 @@ class XArmGripperController:
             history_len: int = 60,
             queue_len: int = 2000,
             log_freq: int = None,
+            thresh_closed=False,
             # max_move_speed: float = 200,
         ):
 
         self.ip = ip
         self._control_frequency = control_frequency
         self._log_freq = log_freq
+        self._thresh_closed = thresh_closed
 
         ctx = mp.get_context("spawn") 
 
@@ -269,6 +282,8 @@ class XArmGripperController:
                 self._wp_count,
 
                 self._log_freq,
+
+                self._thresh_closed,
             ),
         )
 
@@ -304,6 +319,7 @@ class XArmGripperController:
             print("[XArmGripperController] Warning: process still alive after stop timeout")
 
     def schedule_waypoint(self, is_closed, target_time):
+        is_closed = np.clip(is_closed, 0.0, 1.0)
         with self._wp_queue.get_lock():
             if self._wp_count.value >= self._wp_queue_len:
                 raise RuntimeError('Queue exceeded limits')
@@ -355,8 +371,12 @@ def run_demo():
     assert total_iters % duration == 0
 
     ctrl = XArmGripperController(
-        ip="192.168.1.212",
+        ip="192.168.1.211",
         log_freq=240,
+        control_frequency=60,
+        history_len=200,
+        queue_len=4000,
+        #thresh_closed=True
     )
 
     # important not to exceed queue

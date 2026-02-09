@@ -73,9 +73,9 @@ def _clear_error_and_setup_servo_mode(arm) -> None:
     ##
     time.sleep(1)
 
-    arm.set_collision_sensitivity(2, wait=True)
+    # arm.set_collision_sensitivity(2, wait=True)
     # arm.set_collision_sensitivity(1, wait=True)
-    # arm.set_collision_sensitivity(0, wait=True)
+    arm.set_collision_sensitivity(0, wait=True)
     time.sleep(1)
 
     arm.set_state(state=0)
@@ -636,7 +636,8 @@ def run_demo():
 
     # Simple test: move in a small circle in front of robot
     ctrl = XArmServoProcessController(
-        ip="192.168.1.212",
+        # ip="192.168.1.212",
+        ip="192.168.1.211",
         control_frequency=200.0,
         #max_cart_delta=0.005,
         log_freq=800,
